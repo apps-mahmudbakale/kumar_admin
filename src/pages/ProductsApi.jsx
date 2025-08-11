@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getDb } from '../utils/dbHelper';
+import { initDb, getDb } from '../utils/dbHelper';
 
 const ProductsApi = () => {
   const [products, setProducts] = useState([]);
@@ -8,9 +8,12 @@ const ProductsApi = () => {
   useEffect(() => {
     const loadProducts = async () => {
       try {
+        // Initialize the database first
+        await initDb();
         const db = getDb();
+        
         if (!db) {
-          console.error('Database not initialized');
+          console.error('Database not available');
           setLoading(false);
           return;
         }
