@@ -24,19 +24,19 @@ export async function initDb() {
     db = new SQL.Database(dbFile);
   }
 
-  // Drop and recreate products table to ensure proper structure
-  db.run('DROP TABLE IF EXISTS products');
+  // // Drop and recreate products table to ensure proper structure
+  // db.run('DROP TABLE IF EXISTS products');
   
-  // Create products table with all required columns
-  db.run(`
-    CREATE TABLE products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL,
-      image_path TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+  // // Create products table with all required columns
+  // db.run(`
+  //   CREATE TABLE products (
+  //     id INTEGER PRIMARY KEY AUTOINCREMENT,
+  //     name TEXT NOT NULL,
+  //     description TEXT NOT NULL,
+  //     image_path TEXT,
+  //     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  //   )
+  // `);
   
   console.log('Products table created with columns: id, name, description, image_path, created_at');
 

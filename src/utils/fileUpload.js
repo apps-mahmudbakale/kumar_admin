@@ -1,24 +1,34 @@
-// This is a client-side only implementation for demo purposes
+// This is a client-side only implementation
 // In a production app, you would upload to a server
 
 export const uploadImage = async (file) => {
-  // In a real app, you would upload the file to a server here
-  // For this demo, we'll just return a mock URL
   return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      // Return a mock URL with the file name
-      resolve({
-        url: `/uploads/${Date.now()}_${file.name}`,
-        file: reader.result
-      });
-    };
-    reader.readAsDataURL(file);
+    // In a real app, you would upload the file to a server here
+    // For this demo, we'll create an object URL to display the image
+    const objectUrl = URL.createObjectURL(file);
+    
+    // Return a mock response with the object URL
+    resolve({
+      url: objectUrl,
+      filename: file.name,
+      // Store the file object for potential future use
+      file: file
+    });
   });
 };
 
 export const deleteImage = async (imageUrl) => {
-  // In a real app, you would delete the file from the server
-  console.log('Deleting image:', imageUrl);
+  try {
+    if (!imageUrl) return;
+    
+    // Revoke the object URL to free up memory
+    if (imageUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(imageUrl);
+    }
+    
+    console.log('Deleted image URL:', imageUrl);
+  } catch (error) {
+    console.error('Error deleting image:', error);
+  }
   return Promise.resolve();
 };
