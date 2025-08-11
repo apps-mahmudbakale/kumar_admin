@@ -1,5 +1,6 @@
 import initSqlJs from "sql.js";
 import { get, set } from "idb-keyval";
+import bcrypt from 'bcryptjs';
 
 let SQL = null;
 let db = null;
@@ -39,6 +40,32 @@ export async function initDb() {
   `);
   
   console.log('Products table created with columns: id, name, description, image_path, created_at');
+
+  // Create users table if it doesn't exist
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Set default admin user
+  try {
+    const salt = bcrypt.genSaltSync(10);
+    const hashedPassword = bcrypt.hashSync('Kumar@2024', salt);
+    
+    // Delete any existing users and insert the default admin
+    db.run('DELETE FROM users');
+    db.run(
+      'INSERT INTO users (email, password) VALUES (?, ?)',
+      ['info@kumaragroengineering.com', hashedPassword]
+    );
+    console.log('Default admin user created');
+  } catch (error) {
+    console.error('Error creating default user:', error);
+  }
 
   // Save the database after table creation
   if (isNewDb) {
