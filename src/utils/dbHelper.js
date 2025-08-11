@@ -36,7 +36,7 @@ export async function initDb() {
       image_path TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
-  // `);
+  `);
   
   console.log('Products table created with columns: id, name, description, image_path, created_at');
 
