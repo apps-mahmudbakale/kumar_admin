@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { initDb } from '../utils/dbHelper';
+import { getDb } from '../utils/dbHelper';
 
 const ProductsApi = () => {
   const [products, setProducts] = useState([]);
@@ -8,7 +8,13 @@ const ProductsApi = () => {
   useEffect(() => {
     const loadProducts = async () => {
       try {
-        const db = await initDb();
+        const db = getDb();
+        if (!db) {
+          console.error('Database not initialized');
+          setLoading(false);
+          return;
+        }
+
         const stmt = db.prepare("SELECT * FROM products");
         const fetchedProducts = [];
         
@@ -20,7 +26,7 @@ const ProductsApi = () => {
         setProducts(fetchedProducts);
       } catch (error) {
         console.error('Error loading products:', error);
-        setProducts([]);
+        setProducts([{ error: 'Failed to load products' }]);
       } finally {
         setLoading(false);
       }
@@ -29,16 +35,16 @@ const ProductsApi = () => {
     loadProducts();
   }, []);
 
-  // If we're still loading, show a loading message
   if (loading) {
-    return <div>Loading...</div>;
+    return <div className="p-4">Loading products...</div>;
   }
 
-  // Return the products as JSON
   return (
-    <pre>
-      {JSON.stringify(products, null, 2)}
-    </pre>
+    <div className="p-4">
+      <pre className="bg-gray-100 p-4 rounded overflow-auto">
+        {JSON.stringify(products, null, 2)}
+      </pre>
+    </div>
   );
 };
 
