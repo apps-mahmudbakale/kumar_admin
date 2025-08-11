@@ -26,46 +26,46 @@ export async function initDb() {
   }
 
   // Drop and recreate products table to ensure proper structure
-  db.run('DROP TABLE IF EXISTS products');
+  // db.run('DROP TABLE IF EXISTS products');
   
-  // Create products table with all required columns
-  db.run(`
-    CREATE TABLE products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL,
-      image_path TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+  // // Create products table with all required columns
+  // db.run(`
+  //   CREATE TABLE products (
+  //     id INTEGER PRIMARY KEY AUTOINCREMENT,
+  //     name TEXT NOT NULL,
+  //     description TEXT NOT NULL,
+  //     image_path TEXT,
+  //     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  //   )
+  // `);
   
-  console.log('Products table created with columns: id, name, description, image_path, created_at');
+  // console.log('Products table created with columns: id, name, description, image_path, created_at');
 
-  // Create users table if it doesn't exist
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+  // // Create users table if it doesn't exist
+  // db.run(`
+  //   CREATE TABLE IF NOT EXISTS users (
+  //     id INTEGER PRIMARY KEY AUTOINCREMENT,
+  //     email TEXT UNIQUE NOT NULL,
+  //     password TEXT NOT NULL,
+  //     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  //   )
+  // `);
 
-  // Set default admin user
-  try {
-    const salt = bcrypt.genSaltSync(10);
-    const hashedPassword = bcrypt.hashSync('Kumar@2024', salt);
+  // // Set default admin user
+  // try {
+  //   const salt = bcrypt.genSaltSync(10);
+  //   const hashedPassword = bcrypt.hashSync('Kumar@2024', salt);
     
-    // Delete any existing users and insert the default admin
-    db.run('DELETE FROM users');
-    db.run(
-      'INSERT INTO users (email, password) VALUES (?, ?)',
-      ['info@kumaragroengineering.com', hashedPassword]
-    );
-    console.log('Default admin user created');
-  } catch (error) {
-    console.error('Error creating default user:', error);
-  }
+  //   // Delete any existing users and insert the default admin
+  //   db.run('DELETE FROM users');
+  //   db.run(
+  //     'INSERT INTO users (email, password) VALUES (?, ?)',
+  //     ['info@kumaragroengineering.com', hashedPassword]
+  //   );
+  //   console.log('Default admin user created');
+  // } catch (error) {
+  //   console.error('Error creating default user:', error);
+  // }
 
   // Save the database after table creation
   if (isNewDb) {
