@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { initDb, getDb } from '../utils/dbHelper';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
 
 const ProductsApi = () => {
   const [products, setProducts] = useState([]);
@@ -8,27 +9,23 @@ const ProductsApi = () => {
   useEffect(() => {
     const loadProducts = async () => {
       try {
-        // Initialize the database first
-        await initDb();
-        const db = getDb();
-        
-        if (!db) {
-          console.error('Database not available');
-          setLoading(false);
-          return;
-        }
-
-        const stmt = db.prepare("SELECT * FROM products");
+        const productsSnapshot = await getDocs(collection(db, 'products'));
         const fetchedProducts = [];
         
-        while (stmt.step()) {
-          fetchedProducts.push(stmt.getAsObject());
+        if (!productsSnapshot.empty) {
+          productsSnapshot.forEach((doc) => {
+            fetchedProducts.push({
+              id: doc.id,
+              ...doc.data()
+            });
+          });
+          setProducts(fetchedProducts);
+        } else {
+          console.warn('No products found in Firestore');
+          setProducts([{ error: 'No products found' }]);
         }
-        
-        stmt.free();
-        setProducts(fetchedProducts);
       } catch (error) {
-        console.error('Error loading products:', error);
+        console.error('Error loading products from Firestore:', error);
         setProducts([{ error: 'Failed to load products' }]);
       } finally {
         setLoading(false);

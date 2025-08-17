@@ -1,84 +1,109 @@
-import React, { useState, useEffect } from "react";
+import { useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import bcrypt from "bcryptjs";
-import initSqlJs from "sql.js";
+import { loginUser } from "../utils/firebaseHelper";
+import { AuthContext } from "../context/AuthContext.jsx";
+import Swal from "sweetalert2";
 
 const Login = () => {
-  const [db, setDb] = useState(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const loadDatabase = async () => {
-      try {
-        const SQL = await initSqlJs({ locateFile: file => `https://sql.js.org/dist/${file}` });
-
-        const response = await fetch("/dictionary.db"); // Your DB file in /public
-        const buffer = await response.arrayBuffer();
-        const loadedDb = new SQL.Database(new Uint8Array(buffer));
-        setDb(loadedDb);
-      } catch (err) {
-        console.error("Failed to load database:", err);
-        setError("Database load failed.");
-      }
-    };
-
-    loadDatabase();
-  }, []);
+  const { setCurrentUser } = useContext(AuthContext);
 
   const handleLogin = async (e) => {
     e.preventDefault();
-
-    if (!db) {
-      alert("Database not ready.");
+    setError("");
+    
+    if (!email || !password) {
+      setError("Please fill in all fields");
       return;
     }
 
     try {
       setLoading(true);
-
-      const stmt = db.prepare("SELECT id, email, password FROM users WHERE email = ?");
-      stmt.bind([email]);
-
-      let user = null;
-      while (stmt.step()) {
-        user = stmt.getAsObject();
+      const { success, user, error: loginError } = await loginUser(email, password);
+      
+      if (success && user) {
+        setCurrentUser(user);
+        
+        // Show success message
+        await Swal.fire({
+          icon: 'success',
+          title: 'Login Successful!',
+          text: `Welcome back, ${user.displayName || user.email}!`,
+          timer: 2000,
+          showConfirmButton: false
+        });
+        
+        // Redirect to dashboard
+        navigate("/dashboard");
+      } else {
+        setError(loginError || "Failed to login. Please try again.");
       }
-      stmt.free();
-
-      if (!user) {
-        setError("User not found.");
-        setLoading(false);
-        return;
-      }
-
-      const match = await bcrypt.compare(password, user.password);
-      if (!match) {
-        setError("Incorrect password.");
-        setLoading(false);
-        return;
-      }
-
-      localStorage.setItem("user_id", user.id);
-      navigate("/dashboard");
     } catch (err) {
-      console.error(err);
-      setError("Login error: " + err.message);
+      console.error("Login error:", err);
+      
+      // Handle different Firebase Auth errors
+      const errorMessage = err.message || "An error occurred during login";
+      setError(errorMessage);
+      
+      // Show error message
+      await Swal.fire({
+        icon: 'error',
+        title: 'Login Failed',
+        text: errorMessage,
+        timer: 3000,
+        showConfirmButton: true
+      });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <div className="bg-white p-6 rounded-lg shadow-md w-full max-w-md">
-        <h2 className="text-2xl font-bold text-center text-gray-700">Login</h2>
-        {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
-
-        <form onSubmit={handleLogin} className="mt-4">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
+        <div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+            Sign in to your account
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Or{' '}
+            <button
+              onClick={() => navigate('/register')}
+              className="font-medium text-indigo-600 hover:text-indigo-500 focus:outline-none"
+            >
+              create a new account
+            </button>
+          </p>
+        </div>
+        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+          {error && (
+            <div className="rounded-md bg-red-50 p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg
+                    className="h-5 w-5 text-red-400"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-red-800">{error}</h3>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="mb-4">
             <label className="block text-gray-700 font-medium">Email</label>
             <input

@@ -1,138 +1,104 @@
-import { useEffect, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import Swal from "sweetalert2";
-import { initDb, saveDb } from "../utils/dbHelper";
-import { uploadImage } from "../utils/fileUpload";
+import { useState, useEffect, useCallback, useRef, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { db } from '../firebase';
+import { setupDefaultAdmin } from '../utils/setupAdmin';
+import { 
+  collection, 
+  getDocs, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  query, 
+  where, 
+  orderBy, 
+  serverTimestamp 
+} from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import Swal from 'sweetalert2';
+import { uploadImage } from '../utils/firebaseHelper';
+import { AuthContext } from '../context/AuthContext.jsx';
 
 const Dashboard = () => {
-  const [db, setDb] = useState(null);
+  // Auth context
+  const { currentUser, loading: authLoading } = useContext(AuthContext);
+  const navigate = useNavigate();
+  
+  // Product state
   const [products, setProducts] = useState([]);
-  const [allProducts, setAllProducts] = useState([]);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  
+  // Users state
+  const [users, setUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  
+  // UI state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEdit, setIsEdit] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  // Form state
   const [newProductName, setNewProductName] = useState("");
   const [newProductDescription, setNewProductDescription] = useState("");
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
-  const fileInputRef = useRef(null);
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [isEdit, setIsEdit] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const productsPerPage = 100;
-  const navigate = useNavigate();
+  const productsPerPage = 10;
+  
+  const fileInputRef = useRef(null);
 
+  // Redirect if not authenticated
   useEffect(() => {
-    const user = localStorage.getItem("user_id");
-    if (!user) navigate("/login");
+    if (!authLoading && !currentUser) {
+      navigate("/login");
+    }
+  }, [currentUser, authLoading, navigate]);
 
-    const loadDb = async () => {
-      const loadedDb = await initDb();
-      setDb(loadedDb);
-    };
+  // Get filtered and paginated products based on search term
+  const getFilteredProducts = useCallback(() => {
+    return products
+      .filter(product => 
+        product.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.description?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      .slice((currentPage - 1) * productsPerPage, currentPage * productsPerPage);
+  }, [products, searchTerm, currentPage]);
+  
+  const displayedProducts = getFilteredProducts();
 
-    loadDb();
-  }, [navigate]);
-
+  // Update total pages when products or search term changes
   useEffect(() => {
-    if (db) refreshProducts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, currentPage, searchTerm]);
-
-  const refreshProducts = () => {
-    if (!db) return;
-
-    let query = "SELECT * FROM products";
-    let params = [];
-
-    if (searchTerm) {
-      query += " WHERE name LIKE ?";
-      params = [`%${searchTerm}%`];
-    }
-
-    const stmt = db.prepare(query);
-    stmt.bind(params);
-
-    const fetchedProducts = [];
-    while (stmt.step()) {
-      fetchedProducts.push(stmt.getAsObject());
-    }
-    stmt.free();
-
-    setAllProducts(fetchedProducts);
-    setTotalPages(Math.ceil(fetchedProducts.length / productsPerPage));
-    const paginated = fetchedProducts.slice(
-      (currentPage - 1) * productsPerPage,
-      currentPage * productsPerPage
+    const filtered = products.filter(product => 
+      product.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.description?.toLowerCase().includes(searchTerm.toLowerCase())
     );
-    setProducts(paginated);
-  };
+    setTotalPages(Math.ceil(filtered.length / productsPerPage));
+    // Reset to first page when search term changes
+    setCurrentPage(1);
+  }, [products, productsPerPage, searchTerm]);
+  
+  // Handle page change
+  const handlePageChange = useCallback((newPage) => {
+    setCurrentPage(newPage);
+    window.scrollTo(0, 0); // Scroll to top on page change
+  }, []);
 
-  const handleAddOrUpdateProduct = async () => {
-    if (!newProductName || !newProductDescription || !db) return;
+  // Close modal and reset form
+  const closeModal = useCallback(() => {
+    setSelectedProduct(null);
+    setNewProductName('');
+    setNewProductDescription('');
+    setImagePreview('');
+    setImageFile(null);
+    setError(null);
+    setIsEdit(false);
+    setIsModalOpen(false);
+  }, []);
 
-    try {
-      let imagePath = selectedProduct?.image_path || "";
-      
-      // Upload new image if selected
-      if (imageFile) {
-        const result = await uploadImage(imageFile);
-        imagePath = result.url;
-      }
-
-      if (isEdit && selectedProduct) {
-        db.run("UPDATE products SET name = ?, description = ?, image_path = ? WHERE id = ?", [
-          newProductName,
-          newProductDescription,
-          imagePath,
-          selectedProduct.id,
-        ]);
-        Swal.fire("Updated!", "Product updated successfully", "success");
-      } else {
-        db.run("INSERT INTO products (name, description, image_path) VALUES (?, ?, ?)", [
-          newProductName,
-          newProductDescription,
-          imagePath,
-        ]);
-        Swal.fire("Added!", "New product added successfully", "success");
-      }
-    } catch (error) {
-      console.error('Error saving product:', error);
-      Swal.fire("Error", "Failed to save product. Please try again.", "error");
-    }
-
-    await saveDb();
-    refreshProducts();
-    closeModal();
-  };
-
-  const handleDeleteProduct = async (id) => {
-    if (!db) return;
-
-    Swal.fire({
-      title: "Are you sure?",
-      text: "This will permanently delete the product.",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
-      confirmButtonText: "Yes, delete it!",
-    }).then(async (result) => {
-      if (result.isConfirmed) {
-        db.run("DELETE FROM products WHERE id = ?", [id]);
-        await saveDb();
-        Swal.fire("Deleted!", "The product has been removed.", "success");
-        refreshProducts();
-      }
-    });
-  };
-
-  const handleViewProduct = (product) => {
-    setSelectedProduct(product);
-    setIsViewModalOpen(true);
-  };
-
+  // Handle image selection
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -141,280 +107,520 @@ const Dashboard = () => {
     }
   };
 
+  // Handle add or update product
+  const handleAddOrUpdateProduct = async () => {
+    if (!newProductName.trim() || !newProductDescription.trim()) {
+      setError('Please fill in all fields');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      let imageUrl = selectedProduct?.imageUrl || '';
+      
+      // Upload new image if selected
+      if (imageFile) {
+        const uploadResult = await uploadImage(imageFile, 'products');
+        imageUrl = uploadResult.downloadURL;
+      }
+
+      const productData = {
+        name: newProductName,
+        description: newProductDescription,
+        imageUrl,
+        updatedAt: serverTimestamp()
+      };
+
+      if (isEdit && selectedProduct) {
+        // Update existing product
+        await updateDoc(doc(db, 'products', selectedProduct.id), productData);
+        Swal.fire('Success', 'Product updated successfully', 'success');
+      } else {
+        // Add new product
+        productData.createdAt = serverTimestamp();
+        await addDoc(collection(db, 'products'), productData);
+        Swal.fire('Success', 'Product added successfully', 'success');
+      }
+
+      closeModal();
+      fetchProducts();
+    } catch (err) {
+      console.error('Error saving product:', err);
+      setError('Failed to save product. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle delete product
+  const handleDeleteProduct = (product) => {
+    Swal.fire({
+      title: 'Are you sure?',
+      text: 'You will not be able to recover this product!',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, delete it!',
+      cancelButtonText: 'No, keep it',
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          await deleteDoc(doc(db, 'products', product.id));
+          Swal.fire('Deleted!', 'Product has been deleted.', 'success');
+          fetchProducts();
+        } catch (err) {
+          console.error('Error deleting product:', err);
+          Swal.fire('Error', 'Failed to delete product', 'error');
+        }
+      }
+    });
+  };
+
+  // Handle edit product
   const handleEditProduct = (product) => {
     setSelectedProduct(product);
     setNewProductName(product.name);
     setNewProductDescription(product.description);
-    setImagePreview(product.image_path || "");
-    setImageFile(null);
+    setImagePreview(product.imageUrl || '');
     setIsEdit(true);
     setIsModalOpen(true);
   };
 
-  const closeModal = () => {
-    setNewProductName("");
-    setNewProductDescription("");
-    setImageFile(null);
-    setImagePreview("");
-    setSelectedProduct(null);
-    setIsEdit(false);
-    setIsModalOpen(false);
+  // Fetch products from Firestore
+  const fetchProducts = useCallback(async () => {
+    try {
+      setLoading(true);
+      const productsRef = collection(db, 'products');
+      const q = query(productsRef, orderBy('createdAt', 'desc'));
+      const querySnapshot = await getDocs(q);
+      
+      const productsData = [];
+      querySnapshot.forEach((doc) => {
+        productsData.push({ id: doc.id, ...doc.data() });
+      });
+      
+      setProducts(productsData);
+    } catch (err) {
+      console.error('Error fetching products:', err);
+      setError('Failed to load products');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Fetch users from Firestore
+  const fetchUsers = useCallback(async () => {
+    try {
+      setLoadingUsers(true);
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, orderBy('createdAt', 'desc'));
+      const querySnapshot = await getDocs(q);
+      
+      const usersData = [];
+      querySnapshot.forEach((doc) => {
+        usersData.push({ id: doc.id, ...doc.data() });
+      });
+      
+      setUsers(usersData);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+      setError('Failed to load users');
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, []);
+
+  // Handle setup admin
+  const handleSetupAdmin = async () => {
+    const result = await Swal.fire({
+      title: 'Create Default Admin?',
+      text: 'This will create a default admin user with email: admin@example.com',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, create admin',
+      cancelButtonText: 'Cancel'
+    });
+
+    if (result.isConfirmed) {
+      try {
+        await setupDefaultAdmin();
+        Swal.fire('Success', 'Default admin user created successfully', 'success');
+        fetchUsers();
+      } catch (err) {
+        console.error('Error setting up admin:', err);
+        Swal.fire('Error', 'Failed to create admin user', 'error');
+      }
+    }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("user_id");
-    navigate("/login");
-  };
+  // Initial data fetch
+  useEffect(() => {
+    fetchProducts();
+    fetchUsers();
+  }, [fetchProducts, fetchUsers]);
+
+  if (authLoading) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen mt-[78px] bg-gray-100 p-6">
-      <div className="max-w-full mx-auto bg-white p-6 rounded-lg shadow-lg">
-        <h1 className="text-2xl font-bold mb-4">Dashboard</h1>
-        <button
-          onClick={handleLogout}
-          className="px-4 py-2 bg-red-500 text-white rounded"
-        >
-          Logout
-        </button>
-
-        <div className="mt-6">
-          <h2 className="text-xl font-semibold mb-2">Products List</h2>
-          <h2 className="text-lg font-semibold mb-2">
-            Total Products: {allProducts.length}
-          </h2>
-
-          <input
-            type="text"
-            placeholder="Search products..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="w-full px-3 py-2 border rounded mb-3"
-          />
+    <div className="container mx-auto px-4 py-8">
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+        <div className="space-x-4">
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="mb-4 px-4 py-2 bg-blue-500 text-white rounded"
+            onClick={() => {
+              setSelectedProduct(null);
+              setNewProductName('');
+              setNewProductDescription('');
+              setImagePreview('');
+              setImageFile(null);
+              setIsEdit(false);
+              setIsModalOpen(true);
+            }}
+            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
           >
-            + Add Product
+            Add New Product
           </button>
-
-          <table className="w-full border-collapse border border-gray-300">
-            <thead>
-              <tr className="bg-gray-200">
-                <th className="border border-gray-300 p-2">Name</th>
-                <th className="border border-gray-300 p-2">Description</th>
-                <th className="border border-gray-300 p-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((product) => (
-                <tr key={product.id} className="border border-gray-300">
-                  <td className="p-2">{product.name}</td>
-                  <td className="p-2 max-w-xs truncate">{product.description}</td>
-                  <td className="p-2">
-                    <button
-                      onClick={() => handleViewProduct(product)}
-                      className="px-3 py-1 bg-blue-500 text-white rounded mx-1"
-                    >
-                      View
-                    </button>
-                    <button
-                      onClick={() => handleEditProduct(product)}
-                      className="px-3 py-1 bg-yellow-500 text-white rounded mx-1"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDeleteProduct(product.id)}
-                      className="px-3 py-1 bg-red-500 text-white rounded mx-1"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="flex justify-center mt-4">
-            <button
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage(currentPage - 1)}
-              className={`px-4 py-2 mx-1 border rounded ${
-                currentPage === 1 ? "bg-gray-300" : "bg-blue-500 text-white"
-              }`}
-            >
-              Previous
-            </button>
-            <span className="px-4 py-2 border rounded">
-              {currentPage} / {totalPages}
-            </span>
-            <button
-              disabled={currentPage === totalPages}
-              onClick={() => setCurrentPage(currentPage + 1)}
-              className={`px-4 py-2 mx-1 border rounded ${
-                currentPage === totalPages
-                  ? "bg-gray-300"
-                  : "bg-blue-500 text-white"
-              }`}
-            >
-              Next
-            </button>
-          </div>
+          <button
+            onClick={handleSetupAdmin}
+            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+          >
+            Setup Admin User
+          </button>
         </div>
+      </div>
+
+      {/* Search and filter */}
+      <div className="mb-6">
+        <input
+          type="text"
+          placeholder="Search products..."
+          className="w-full max-w-md px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+
+      {/* Products Table */}
+      <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+        <div className="overflow-x-auto">
+          {loading ? (
+            <div className="flex justify-center items-center p-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            </div>
+          ) : error ? (
+            <div className="p-4 text-red-500">{error}</div>
+          ) : (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Description
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Image
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {displayedProducts.map((product) => (
+                  <tr key={product.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{product.name}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-500 line-clamp-2">{product.description}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {product.imageUrl && (
+                        <img
+                          src={product.imageUrl}
+                          alt={product.name}
+                          className="h-10 w-10 rounded-full object-cover"
+                        />
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <button
+                        onClick={() => handleEditProduct(product)}
+                        className="text-indigo-600 hover:text-indigo-900 mr-4"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteProduct(product)}
+                        className="text-red-600 hover:text-red-900"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {displayedProducts.length === 0 && (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-4 text-center text-sm text-gray-500">
+                      No products found
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="px-6 py-3 flex items-center justify-between border-t border-gray-200">
+            <div className="flex-1 flex justify-between sm:hidden">
+              <button
+                onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+                className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+              >
+                Next
+              </button>
+            </div>
+            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm text-gray-700">
+                  Showing <span className="font-medium">{(currentPage - 1) * productsPerPage + 1}</span> to{' '}
+                  <span className="font-medium">
+                    {Math.min(currentPage * productsPerPage, products.length)}
+                  </span>{' '}
+                  of <span className="font-medium">{products.length}</span> results
+                </p>
+              </div>
+              <div>
+                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                  <button
+                    onClick={() => handlePageChange(1)}
+                    disabled={currentPage === 1}
+                    className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
+                  >
+                    <span className="sr-only">First</span>
+                    «
+                  </button>
+                  <button
+                    onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    className="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
+                  >
+                    <span className="sr-only">Previous</span>
+                    ‹
+                  </button>
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => handlePageChange(pageNum)}
+                        className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                          currentPage === pageNum
+                            ? 'z-10 bg-indigo-50 border-indigo-500 text-indigo-600'
+                            : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    className="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
+                  >
+                    <span className="sr-only">Next</span>
+                    ›
+                  </button>
+                  <button
+                    onClick={() => handlePageChange(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
+                  >
+                    <span className="sr-only">Last</span>
+                    »
+                  </button>
+                </nav>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add/Edit Product Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 flex items-center justify-center bg-[#0000007a] bg-opacity-50">
-          <div className="bg-white p-8 rounded-lg shadow-lg w-[700px]">
-            <h2 className="text-xl font-semibold mb-4">
-              {isEdit ? "Edit Product" : "Add New Product"}
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
+            <h2 className="text-xl font-bold mb-4">
+              {isEdit ? 'Edit Product' : 'Add New Product'}
             </h2>
-            <input
-              type="text"
-              placeholder="Product Name"
-              value={newProductName}
-              onChange={(e) => setNewProductName(e.target.value)}
-              className="w-full px-3 py-2 border rounded mb-3"
-            />
-            <textarea
-              placeholder="Description"
-              value={newProductDescription}
-              onChange={(e) => setNewProductDescription(e.target.value)}
-              className="w-full px-3 py-2 border rounded mb-3 h-24"
-              rows="4"
-            />
             
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Product Image
-              </label>
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                onChange={handleImageChange}
-                className="hidden"
-              />
-              <div className="mt-1 flex items-center">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  Choose Image
-                </button>
-                {imagePreview && (
-                  <div className="ml-4">
-                    <img
-                      src={imagePreview}
-                      alt="Preview"
-                      className="h-16 w-16 object-cover rounded"
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex justify-between">
-              <button
-                onClick={closeModal}
-                className="px-4 py-2 bg-gray-500 text-white rounded"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAddOrUpdateProduct}
-                className="px-4 py-2 bg-blue-500 text-white rounded"
-              >
-                {isEdit ? "Update" : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* View Modal */}
-      {isViewModalOpen && selectedProduct && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-75 z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-4">
-                <h2 className="text-2xl font-bold text-gray-800">{selectedProduct.name}</h2>
-                <button
-                  onClick={() => setIsViewModalOpen(false)}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+            {error && <div className="mb-4 p-2 bg-red-100 text-red-700 rounded">{error}</div>}
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Product Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newProductName}
+                  onChange={(e) => setNewProductName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter product name"
+                />
               </div>
               
-              <div className="grid md:grid-cols-2 gap-6">
-                {selectedProduct.image_path ? (
-                  <div className="bg-gray-100 rounded-lg overflow-hidden">
-                    <img
-                      src={selectedProduct.image_path}
-                      alt={selectedProduct.name}
-                      className="w-full h-auto max-h-[60vh] object-contain"
-                    />
-                  </div>
-                ) : (
-                  <div className="bg-gray-100 rounded-lg flex items-center justify-center h-64">
-                    <span className="text-gray-400">No image available</span>
-                  </div>
-                )}
-                
-                <div>
-                  <div className="mb-6">
-                    <h3 className="text-lg font-semibold text-gray-700 mb-2">Description</h3>
-                    <p className="text-gray-600 whitespace-pre-line">
-                      {selectedProduct.description || 'No description available'}
-                    </p>
-                  </div>
-                  
-                  <div className="mb-6">
-                    <h3 className="text-lg font-semibold text-gray-700 mb-2">Details</h3>
-                    <div className="space-y-2">
-                      <div className="flex justify-between border-b border-gray-100 pb-2">
-                        <span className="text-gray-600">Created At:</span>
-                        <span className="text-gray-800">
-                          {selectedProduct.created_at ? new Date(selectedProduct.created_at).toLocaleString() : 'N/A'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between border-b border-gray-100 pb-2">
-                        <span className="text-gray-600">ID:</span>
-                        <span className="text-gray-800">{selectedProduct.id}</span>
-                      </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Description <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={newProductDescription}
+                  onChange={(e) => setNewProductDescription(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter product description"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Product Image
+                </label>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={handleImageChange}
+                  className="hidden"
+                />
+                <div className="mt-1 flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    Choose Image
+                  </button>
+                  {imagePreview && (
+                    <div className="ml-4">
+                      <img
+                        src={imagePreview}
+                        alt="Preview"
+                        className="h-16 w-16 object-cover rounded"
+                      />
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
               
-              <div className="mt-6 flex justify-end space-x-3">
+              <div className="flex justify-between mt-4">
                 <button
-                  onClick={() => setIsViewModalOpen(false)}
-                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition-colors"
+                  onClick={closeModal}
+                  className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
                 >
-                  Close
+                  Cancel
                 </button>
                 <button
-                  onClick={() => {
-                    setIsViewModalOpen(false);
-                    handleEditProduct(selectedProduct);
-                  }}
+                  onClick={handleAddOrUpdateProduct}
                   className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                  disabled={loading}
                 >
-                  Edit Product
+                  {loading ? (
+                    <span className="flex items-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      {isEdit ? 'Updating...' : 'Saving...'}
+                    </span>
+                  ) : isEdit ? 'Update' : 'Save'}
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
+      
+      {/* Users Table */}
+      <div className="mt-12">
+        <h2 className="text-xl font-semibold mb-4">Users</h2>
+        {loadingUsers ? (
+          <div className="flex justify-center items-center p-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          </div>
+        ) : (
+          <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Email
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Created At
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Last Login
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {users.map((user) => (
+                  <tr key={user.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {user.email}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {user.createdAt?.toDate?.().toLocaleString() || 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {user.lastLogin?.toDate?.().toLocaleString() || 'Never'}
+                    </td>
+                  </tr>
+                ))}
+                {users.length === 0 && (
+                  <tr>
+                    <td colSpan="3" className="px-6 py-4 text-center text-sm text-gray-500">
+                      No users found
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
